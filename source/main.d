@@ -1,10 +1,14 @@
 
 import std.stdio;
+import std.exception : enforce;
+import std.algorithm, std.range;
 
 import derelict.opengl3.gl3;
 import derelict.opengl3.gl;
 import derelict.glfw3.glfw3;
 import shaped.format, shaped.geometry;
+
+alias Path = uint;
 
 void main(string[] args)
 {
@@ -69,13 +73,27 @@ void main(string[] args)
 	}
 
 	Path[] layers;
+	Styles[] lstyles;
 	auto source = File(args[1]);
 	while (!source.eof)
 	{
+		uint[1] type;
+		source.rawRead(type[]);
+		lstyles ~= styles[cast(Type)type[0]];
+
 		ulong[2] lengths;
 		source.rawRead(lengths[]);
-		auto commands = minimallyInitializeArray!(ubyte[])(lengths[0]);
-		auto coords = minimallyInitializeArray!(float[])(lengths[1]);
+		import std.array : minimallyInitializedArray;
+		auto commands = minimallyInitializedArray!(ubyte[])(lengths[0]);
+		auto coords = minimallyInitializedArray!(float[])(lengths[1]);
+		enforce(lengths[0] == source.rawRead(commands).length, "Malformed command array");
+		enforce(lengths[1] == source.rawRead(coords).length, "Malformed coords array");
+
+		auto path = glGenPathsNV(1);
+		glPathCommandsNV(path,
+			cast(GLsizei)commands.length, commands.ptr,
+			cast(GLsizei)coords.length, GL_FLOAT, coords.ptr);
+		layers ~= path;
 	}
 
 	while (!glfwWindowShouldClose(window))
@@ -94,21 +112,21 @@ void main(string[] args)
 		//  to the viewport
 
 		// render
-		foreach (const layer; map.layers)
+		foreach (const layer, const style; layers.zip(lstyles))
 		{
-			if (layer.styles.filled)
+			if (style.filled)
 			{
-				glColor4ubv(layer.styles.fill.components.ptr);
-				glStencilFillPathNV(layer.path, GL_COUNT_UP_NV, 0x1F);
-				glCoverFillPathNV(layer.path, GL_BOUNDING_BOX_NV);
+				glColor4ubv(style.fill.components.ptr);
+				glStencilFillPathNV(layer, GL_COUNT_UP_NV, 0x1F);
+				glCoverFillPathNV(layer, GL_BOUNDING_BOX_NV);
 			}
 
-			if (layer.styles.lineWidth > 0f)
+			if (style.lineWidth > 0f)
 			{
 				const GLint reference = 0x1;
-				glColor4ubv(layer.styles.line.components.ptr);
-				glStencilStrokePathNV(layer.path, reference, 0x1F);
-				glCoverStrokePathNV(layer.path, GL_BOUNDING_BOX_NV);
+				glColor4ubv(style.line.components.ptr);
+				glStencilStrokePathNV(layer, reference, 0x1F);
+				glCoverStrokePathNV(layer, GL_BOUNDING_BOX_NV);
 			}
 		}
 
@@ -117,62 +135,6 @@ void main(string[] args)
 	}
 	
 }
-
-Path pathFromShapes(const Shape[] shapes)
-{
-	import std.array, std.algorithm, std.range;
-	auto commands = appender!(GLubyte[]);
-	auto coords = appender!(GLfloat[]);
-
-	void putCoord(PointType)(const ref PointType pt)
-	{
-		coords.put(pt.x);
-		coords.put(pt.y);
-	}
-
-	void addPoly(PolyType)(const ref PolyType poly)
-	{
-		auto partEnds = chain(poly.partStarts.dropOne, only(poly.points.length));
-		foreach (start, end; poly.partStarts.zip(partEnds))
-		{
-			commands.put(MOVE_TO_NV);
-			putCoord(poly.points[start]);
-
-			foreach (const pt; poly.points[start+1..end])
-			{
-				commands.put(LINE_TO_NV);
-				putCoord(pt);
-			}
-
-			static if (is(PolyType == Polygon) || is(PolyType == PolygonZ) || is(PolyType == PolygonM))
-				commands.put(CLOSE_PATH_NV);
-		}
-	}
-
-	foreach (shape; shapes)
-	{
-		switch (shape.type) with (ShapeType)
-		{
-			case PolyLine:  addPoly(shape._polyline); break;
-			case PolyLineZ: addPoly(shape._polylinez); break;
-			case PolyLineM: addPoly(shape._polylinem); break;
-
-			case Polygon:   addPoly(shape._polygon); break;
-			case PolygonZ:  addPoly(shape._polygonz); break;
-			case PolygonM:  addPoly(shape._polygonm); break;
-
-			default:	break;
-		}
-	}
-
-	auto path = glGenPathsNV(1);
-	glPathCommandsNV(path,
-		cast(GLsizei)commands.data.length, commands.data.ptr,
-		cast(GLsizei)coords.data.length, GL_FLOAT, coords.data.ptr);
-	return path;
-}
-
-alias Path = uint;
 
 struct Styles
 {
@@ -187,7 +149,6 @@ struct Color
 	
 	this(string hex)
 	{
-		import std.algorithm : startsWith;
 		import std.conv;
 		if (!hex.startsWith("#") || hex.length < 7 || hex.length > 9)
 			throw new Exception("Unknown color format");

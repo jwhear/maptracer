@@ -1,0 +1,7 @@
+name "projector"
+description "Translate Shapefiles into a format usuable by maptrace"
+authors "Justin Whear"
+
+libs "proj"
+dependency "derelict-gl3" path="/home/justin/Public/DerelictGL3"
+dependency "shaped" path="../shaped"

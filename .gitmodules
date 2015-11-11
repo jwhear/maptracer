@@ -1,0 +1,3 @@
+[submodule "shaped"]
+	path = shaped
+	url = https://github.com/economicmodeling/shaped.git

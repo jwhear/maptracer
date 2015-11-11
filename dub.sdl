@@ -1,0 +1,9 @@
+name "maptrace"
+description "a toy"
+authors "Justin Whear"
+
+subPackage "./projector"
+
+dependency "derelict-glfw3" version=">=1.0.0"
+dependency "derelict-gl3" path="/home/justin/Public/DerelictGL3"
+dependency "shaped" path="./shaped"
